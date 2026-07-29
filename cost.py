@@ -19,6 +19,8 @@ OUTPUT_PRICING = {
     "deepseek-reasoner":               16.00,
     "llama-3.3-70b-versatile":          0.79,  # groq
     "meta/llama-3.3-70b-instruct":      0.42,  # nvidia
+    "MiniMax-M3":                        2.40,  # minimax
+    "MiniMax-M2.7":                      1.20,  # minimax
     "claude-opus-4-7":                 75.00,
 }
 OPUS_PRICE = 75.00   # Claude Opus 4.7 output $/1M — reference
