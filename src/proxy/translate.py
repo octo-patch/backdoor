@@ -230,6 +230,12 @@ def stream_openai_to_anthropic(
     """
     events: list[str] = []
 
+    usage = chunk.get("usage") or {}
+    if usage:
+        state["input_tokens"] = usage.get("prompt_tokens", input_tokens)
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        state["cache_read_tokens"] = prompt_details.get("cached_tokens", 0)
+
     if not state.get("started"):
         state["started"] = True
         state["block_index"] = 0
@@ -327,7 +333,6 @@ def stream_openai_to_anthropic(
             }))
 
         stop_reason = _map_finish_reason(finish)
-        usage = chunk.get("usage") or {}
         output_tokens = usage.get("completion_tokens", state.get("output_tokens", 0))
 
         events.append(_sse("message_delta", {

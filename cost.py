@@ -21,6 +21,12 @@ OUTPUT_PRICING = {
     "meta/llama-3.3-70b-instruct":      0.42,  # nvidia
     "claude-opus-4-7":                 75.00,
 }
+
+# Input, output, and cache-read pricing (per 1M tokens)
+TOKEN_PRICING = {
+    "MiniMax-M3":   {"input": 0.60, "output": 2.40, "cache_read": 0.12},
+    "MiniMax-M2.7": {"input": 0.30, "output": 1.20, "cache_read": 0.06},
+}
 OPUS_PRICE = 75.00   # Claude Opus 4.7 output $/1M — reference
 FALLBACK_PRICE = 1.00
 
@@ -37,13 +43,15 @@ RESET  = "\033[0m"
 RE_REQUEST = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: → (\S+) \[(complete|stream)\]"
 )
-# ← deepseek-chat [complete] stop=end_turn out_tokens=6
+# ← model-id [complete] stop=end_turn out_tokens=6
 RE_COMPLETE_RESP = re.compile(
-    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: ← (\S+) \[complete\].*out_tokens=(\d+)(?:.*in_tokens=(\d+))?"
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: ← (\S+) \[complete\]"
+    r".*out_tokens=(\d+)(?:.*?in_tokens=(\d+))?(?:.*?cache_read_tokens=(\d+))?$"
 )
-# ← deepseek-chat [stream] done  (optionally: in_tokens=123)
+# ← model-id [stream] done  (optionally: in_tokens=123 cache_read_tokens=45)
 RE_STREAM_RESP = re.compile(
-    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: ← (\S+) \[stream\] done(?:.*in_tokens=(\d+))?"
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: ← (\S+) \[stream\] done"
+    r"(?:.*?in_tokens=(\d+))?(?:.*?cache_read_tokens=(\d+))?$"
 )
 
 
@@ -53,7 +61,7 @@ def parse_log(log_path: Path) -> dict:
         "last_ts":  None,
         "models":   defaultdict(lambda: {
             "complete": 0, "stream": 0,
-            "out_tokens": 0, "in_tokens": 0,
+            "out_tokens": 0, "in_tokens": 0, "cache_read_tokens": 0,
         }),
     }
 
@@ -70,21 +78,25 @@ def parse_log(log_path: Path) -> dict:
 
             m = RE_COMPLETE_RESP.match(line)
             if m:
-                ts_str, model, out_tok, in_tok = m.groups()
+                ts_str, model, out_tok, in_tok, cache_read_tok = m.groups()
                 update_ts(ts_str)
                 stats["models"][model]["complete"] += 1
                 stats["models"][model]["out_tokens"] += int(out_tok)
                 if in_tok:
                     stats["models"][model]["in_tokens"] += int(in_tok)
+                if cache_read_tok:
+                    stats["models"][model]["cache_read_tokens"] += int(cache_read_tok)
                 continue
 
             m = RE_STREAM_RESP.match(line)
             if m:
-                ts_str, model, in_tok = m.groups()
+                ts_str, model, in_tok, cache_read_tok = m.groups()
                 update_ts(ts_str)
                 stats["models"][model]["stream"] += 1
                 if in_tok:
                     stats["models"][model]["in_tokens"] += int(in_tok)
+                if cache_read_tok:
+                    stats["models"][model]["cache_read_tokens"] += int(cache_read_tok)
                 continue
 
             # Capture timestamps from any INFO line for date range
@@ -96,10 +108,27 @@ def parse_log(log_path: Path) -> dict:
 
 
 def price_for(model: str) -> float:
+    for key, pricing in TOKEN_PRICING.items():
+        if key in model:
+            return pricing["output"]
     for key, price in OUTPUT_PRICING.items():
         if key in model:
             return price
     return FALLBACK_PRICE
+
+
+def estimate_cost(model: str, usage: dict) -> float:
+    for key, pricing in TOKEN_PRICING.items():
+        if key in model:
+            input_tokens = usage["in_tokens"]
+            cache_read_tokens = min(usage["cache_read_tokens"], input_tokens)
+            uncached_input_tokens = input_tokens - cache_read_tokens
+            return (
+                uncached_input_tokens / 1_000_000 * pricing["input"]
+                + cache_read_tokens / 1_000_000 * pricing["cache_read"]
+                + usage["out_tokens"] / 1_000_000 * pricing["output"]
+            )
+    return usage["out_tokens"] / 1_000_000 * price_for(model)
 
 
 def fmt_cost(dollars: float) -> str:
@@ -132,10 +161,11 @@ def main():
     total_requests = total_complete + total_stream
     total_out_tok  = sum(v["out_tokens"] for v in models.values())
     total_in_tok   = sum(v["in_tokens"]  for v in models.values())
+    total_cache_read_tok = sum(v["cache_read_tokens"] for v in models.values())
     has_in_tokens  = total_in_tok > 0
 
     actual_cost = sum(
-        v["out_tokens"] / 1_000_000 * price_for(model)
+        estimate_cost(model, v)
         for model, v in models.items()
     )
     opus_cost = total_out_tok / 1_000_000 * OPUS_PRICE
@@ -164,24 +194,30 @@ def main():
     print()
     print(f"  {B}Per-model breakdown{R}")
     for model, v in sorted(models.items()):
-        rate = price_for(model)
-        cost = v["out_tokens"] / 1_000_000 * rate
+        cost = estimate_cost(model, v)
         print(f"    {G}{model}{R}")
+        token_details = f"out_tokens: {v['out_tokens']:,}"
+        if v["in_tokens"]:
+            token_details += f" | in_tokens: {v['in_tokens']:,}"
+        if v["cache_read_tokens"]:
+            token_details += f" | cache_read_tokens: {v['cache_read_tokens']:,}"
         print(f"      requests: {v['complete']} complete + {v['stream']} stream  "
-              f"| out_tokens: {v['out_tokens']:,}  | est. cost: {fmt_cost(cost)}")
+              f"| {token_details}  | est. cost: {fmt_cost(cost)}")
     print()
     print(f"  {B}Tokens tracked{R}")
     print(f"    Output tokens  {C}{total_out_tok:>10,}{R}")
     if has_in_tokens:
         print(f"    Input tokens   {C}{total_in_tok:>10,}{R}")
+    if total_cache_read_tok:
+        print(f"    Cache reads    {C}{total_cache_read_tok:>10,}{R}")
     print()
-    print(f"  {B}Cost estimate  {D}(output tokens only){R}")
+    print(f"  {B}Cost estimate{R}")
     print(f"    Current provider   {G}{B}{fmt_cost(actual_cost)}{R}")
     print(f"    Claude Opus 4.7    {Y}{fmt_cost(opus_cost)}{R}")
     if actual_cost > 0:
         print(f"    Savings            {G}{B}{multiplier:.0f}x cheaper{R}  than Opus 4.7")
     print()
-    print(f"  {D}⚠  Input tokens not yet fully tracked in logs (stream requests).{R}")
+    print(f"  {D}⚠  Older log entries may omit input and cache-read tokens.{R}")
     if not has_in_tokens:
         print(f"  {D}   Costs shown are output-only — true spend is higher.{R}")
     print()

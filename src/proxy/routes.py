@@ -107,12 +107,15 @@ async def create_message(
 
     result = nim_response_to_anthropic(resp, req, msg_id)
     usage = result.get("usage", {})
+    provider_usage = resp.get("usage", {})
+    prompt_details = provider_usage.get("prompt_tokens_details") or {}
     logger.info(
-        "← %s [%s] stop=%s out_tokens=%s in_tokens=%s",
+        "← %s [%s] stop=%s out_tokens=%s in_tokens=%s cache_read_tokens=%s",
         provider, mode,
         result.get("stop_reason"),
         usage.get("output_tokens"),
         usage.get("input_tokens"),
+        prompt_details.get("cached_tokens", 0),
     )
     return result
 
@@ -130,7 +133,12 @@ async def _stream(
         async for chunk in client.stream(payload):
             for event in stream_openai_to_anthropic(chunk, state, msg_id, req, input_tokens):
                 yield event
-        logger.info("← %s [stream] done in_tokens=%s", provider, input_tokens)
+        logger.info(
+            "← %s [stream] done in_tokens=%s cache_read_tokens=%s",
+            provider,
+            state.get("input_tokens", input_tokens),
+            state.get("cache_read_tokens", 0),
+        )
     except ProviderError as e:
         logger.error("Provider stream error %s: %s", e.status_code, e.message)
         import json
