@@ -19,7 +19,8 @@ OUTPUT_PRICING = {
     "deepseek-reasoner":               16.00,
     "llama-3.3-70b-versatile":          0.79,  # groq
     "meta/llama-3.3-70b-instruct":      0.42,  # nvidia
-    "MiniMax-M3":                        2.40,  # minimax
+    "MiniMax-M3.1-Flash":                0.60,  # minimax
+    "MiniMax-M3":                        2.40,  # >512k standard upper estimate
     "MiniMax-M2.7":                      1.20,  # minimax
     "claude-opus-4-7":                 75.00,
 }
@@ -98,8 +99,11 @@ def parse_log(log_path: Path) -> dict:
 
 
 def price_for(model: str) -> float:
+    if model in OUTPUT_PRICING:
+        return OUTPUT_PRICING[model]
     for key, price in OUTPUT_PRICING.items():
-        if key in model:
+        # Direct MiniMax prices do not describe custom IDs or gateway routes.
+        if not key.startswith("MiniMax-") and key in model:
             return price
     return FALLBACK_PRICE
 
@@ -183,6 +187,9 @@ def main():
     if actual_cost > 0:
         print(f"    Savings            {G}{B}{multiplier:.0f}x cheaper{R}  than Opus 4.7")
     print()
+    if "MiniMax-M3" in models:
+        print(f"  {D}MiniMax-M3 uses the >512k standard rate as an upper estimate;{R}")
+        print(f"  {D}per-request input tiers are not retained in this report.{R}")
     print(f"  {D}⚠  Input tokens not yet fully tracked in logs (stream requests).{R}")
     if not has_in_tokens:
         print(f"  {D}   Costs shown are output-only — true spend is higher.{R}")
