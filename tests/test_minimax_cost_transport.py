@@ -46,7 +46,7 @@ async def test_flash_http_usage_reaches_cost_report(monkeypatch, tmp_path, host,
     monkeypatch.setattr("proxy.client.httpx.AsyncClient", lambda **kwargs: real_client(
         **kwargs, transport=httpx.MockTransport(respond)))
     settings = Settings(_env_file=None, provider_base_url=f"https://{host}/v1",
-                        provider_model="MiniMax-M3.1-Flash", provider_api_key="offline-test-key")
+                        provider_model="MiniMax-M3.1-Flash", provider_api_key="test")
     provider = ProviderClient(settings)
     monkeypatch.setattr(routes, "_client", provider)
     monkeypatch.setattr(routes, "count_messages", lambda *args: 999)
