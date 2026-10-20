@@ -112,11 +112,13 @@ def parse_log(log_path: Path) -> dict:
 
 
 def price_for(model: str) -> float:
-    # Direct MiniMax prices do not describe custom IDs or gateway routes.
     if model in TOKEN_PRICING:
         return TOKEN_PRICING[model]["output"]
+    if model in OUTPUT_PRICING:
+        return OUTPUT_PRICING[model]
     for key, price in OUTPUT_PRICING.items():
-        if key in model:
+        # Direct MiniMax prices do not describe custom IDs or gateway routes.
+        if not key.startswith("MiniMax-") and key in model:
             return price
     return FALLBACK_PRICE
 

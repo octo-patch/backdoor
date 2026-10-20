@@ -104,6 +104,7 @@ PROVIDER_MODEL=deepseek-chat
 | **Groq** | ✅ | Fastest | When you want responses instantly |
 | **NVIDIA NIM** | ✅ | Fast | Free Llama 3.3 70B |
 | **OpenRouter** | — | Varies | Access to everything, one key |
+| **MiniMax** | — | Varies | 1M-token context · M3.1-Flash (default) / M3 (global & China endpoints) |
 | **Ollama** | ✅ (local) | Depends on your machine | Total privacy, no internet needed |
 | **LM Studio** | ✅ (local) | Depends on your machine | Easy local model management |
 
