@@ -134,10 +134,11 @@ async def _stream(
             for event in stream_openai_to_anthropic(chunk, state, msg_id, req, input_tokens):
                 yield event
         logger.info(
-            "← %s [stream] done in_tokens=%s cache_read_tokens=%s",
+            "← %s [stream] done in_tokens=%s cache_read_tokens=%s out_tokens=%s",
             provider,
             state.get("input_tokens", input_tokens),
             state.get("cache_read_tokens", 0),
+            state.get("output_tokens", 0),
         )
     except ProviderError as e:
         logger.error("Provider stream error %s: %s", e.status_code, e.message)

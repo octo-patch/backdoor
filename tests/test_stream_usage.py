@@ -17,3 +17,4 @@ def test_stream_usage_chunk_records_input_and_cache_tokens():
     assert events == []
     assert state["input_tokens"] == 1200
     assert state["cache_read_tokens"] == 800
+    assert state["output_tokens"] == 300

@@ -37,6 +37,11 @@ def test_parses_complete_and_stream_cache_usage(tmp_path: Path):
     ("model", "usage", "expected"),
     [
         (
+            "MiniMax-M3.1-Flash",
+            {"in_tokens": 1_000_000, "out_tokens": 1_000_000, "cache_read_tokens": 250_000},
+            0.71625,
+        ),
+        (
             "MiniMax-M3",
             {"in_tokens": 1_000_000, "out_tokens": 1_000_000, "cache_read_tokens": 250_000},
             2.88,

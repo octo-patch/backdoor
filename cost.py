@@ -24,6 +24,8 @@ OUTPUT_PRICING = {
 
 # Input, output, and cache-read pricing (per 1M tokens)
 TOKEN_PRICING = {
+    "MiniMax-M3.1-Flash": {"input": 0.15, "output": 0.60, "cache_read": 0.015},
+    # Aggregate logs cannot select per-request tiers; use the >512k standard upper estimate.
     "MiniMax-M3":   {"input": 0.60, "output": 2.40, "cache_read": 0.12},
     "MiniMax-M2.7": {"input": 0.30, "output": 1.20, "cache_read": 0.06},
 }
@@ -51,7 +53,7 @@ RE_COMPLETE_RESP = re.compile(
 # ← model-id [stream] done  (optionally: in_tokens=123 cache_read_tokens=45)
 RE_STREAM_RESP = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO .+: ← (\S+) \[stream\] done"
-    r"(?:.*?in_tokens=(\d+))?(?:.*?cache_read_tokens=(\d+))?$"
+    r"(?:.*?in_tokens=(\d+))?(?:.*?cache_read_tokens=(\d+))?(?:.*?out_tokens=(\d+))?$"
 )
 
 
@@ -90,9 +92,11 @@ def parse_log(log_path: Path) -> dict:
 
             m = RE_STREAM_RESP.match(line)
             if m:
-                ts_str, model, in_tok, cache_read_tok = m.groups()
+                ts_str, model, in_tok, cache_read_tok, out_tok = m.groups()
                 update_ts(ts_str)
                 stats["models"][model]["stream"] += 1
+                if out_tok:
+                    stats["models"][model]["out_tokens"] += int(out_tok)
                 if in_tok:
                     stats["models"][model]["in_tokens"] += int(in_tok)
                 if cache_read_tok:
@@ -108,9 +112,9 @@ def parse_log(log_path: Path) -> dict:
 
 
 def price_for(model: str) -> float:
-    for key, pricing in TOKEN_PRICING.items():
-        if key in model:
-            return pricing["output"]
+    # Direct MiniMax prices do not describe custom IDs or gateway routes.
+    if model in TOKEN_PRICING:
+        return TOKEN_PRICING[model]["output"]
     for key, price in OUTPUT_PRICING.items():
         if key in model:
             return price
@@ -118,16 +122,16 @@ def price_for(model: str) -> float:
 
 
 def estimate_cost(model: str, usage: dict) -> float:
-    for key, pricing in TOKEN_PRICING.items():
-        if key in model:
-            input_tokens = usage["in_tokens"]
-            cache_read_tokens = min(usage["cache_read_tokens"], input_tokens)
-            uncached_input_tokens = input_tokens - cache_read_tokens
-            return (
-                uncached_input_tokens / 1_000_000 * pricing["input"]
-                + cache_read_tokens / 1_000_000 * pricing["cache_read"]
-                + usage["out_tokens"] / 1_000_000 * pricing["output"]
-            )
+    pricing = TOKEN_PRICING.get(model)
+    if pricing:
+        input_tokens = usage["in_tokens"]
+        cache_read_tokens = min(usage["cache_read_tokens"], input_tokens)
+        uncached_input_tokens = input_tokens - cache_read_tokens
+        return (
+            uncached_input_tokens / 1_000_000 * pricing["input"]
+            + cache_read_tokens / 1_000_000 * pricing["cache_read"]
+            + usage["out_tokens"] / 1_000_000 * pricing["output"]
+        )
     return usage["out_tokens"] / 1_000_000 * price_for(model)
 
 
@@ -217,7 +221,10 @@ def main():
     if actual_cost > 0:
         print(f"    Savings            {G}{B}{multiplier:.0f}x cheaper{R}  than Opus 4.7")
     print()
-    print(f"  {D}⚠  Older log entries may omit input and cache-read tokens.{R}")
+    if "MiniMax-M3" in models:
+        print(f"  {D}MiniMax-M3 uses the >512k standard rate as an upper estimate;{R}")
+        print(f"  {D}per-request input tiers are not retained in this report.{R}")
+    print(f"  {D}⚠  Older log entries may omit input, output, and cache-read tokens.{R}")
     if not has_in_tokens:
         print(f"  {D}   Costs shown are output-only — true spend is higher.{R}")
     print()

@@ -233,6 +233,7 @@ def stream_openai_to_anthropic(
     usage = chunk.get("usage") or {}
     if usage:
         state["input_tokens"] = usage.get("prompt_tokens", input_tokens)
+        state["output_tokens"] = usage.get("completion_tokens", state.get("output_tokens", 0))
         prompt_details = usage.get("prompt_tokens_details") or {}
         state["cache_read_tokens"] = prompt_details.get("cached_tokens", 0)
 
@@ -240,7 +241,7 @@ def stream_openai_to_anthropic(
         state["started"] = True
         state["block_index"] = 0
         state["tool_calls"] = {}
-        state["output_tokens"] = 0
+        state.setdefault("output_tokens", 0)
         events.append(_sse("message_start", {
             "type": "message_start",
             "message": {
